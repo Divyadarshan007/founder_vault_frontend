@@ -25,7 +25,7 @@ import { Progress } from "@/components/ui/progress";
 
 const schema = z.object({
   title: z.string().min(1, "Title is required"),
-  description: z.string().optional().default(""),
+  description: z.string(),
   type: z.enum(["THOUGHT", "EVENT", "MEETING", "VOICE_NOTE", "PHOTO", "VIDEO", "DOCUMENT"]),
 });
 
