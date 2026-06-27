@@ -2,9 +2,10 @@
 
 import { useRef, useState, useCallback, useEffect } from "react";
 import SpeechRecognition, { useSpeechRecognition } from "react-speech-recognition";
-import { Mic, Check, Plus, Send, X, Link as LinkIcon, Paperclip } from "lucide-react";
+import { Mic, Check, Plus, Send, X, Link as LinkIcon, Paperclip, Loader2 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
+import { transcribeAudio } from "@/services/transcribe.service";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +39,19 @@ interface Props {
   initialContent?: Content;
 }
 
+function preferredMime() {
+  for (const mime of ["audio/webm", "audio/mp4", "audio/ogg"]) {
+    if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(mime)) return mime;
+  }
+  return "";
+}
+
+function formatTime(sec: number) {
+  const m = Math.floor(sec / 60).toString().padStart(2, "0");
+  const s = (sec % 60).toString().padStart(2, "0");
+  return `${m}:${s}`;
+}
+
 export function ChatContentModal({ open, onClose, onSuccess, initialContent }: Props) {
   const [text, setText] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
@@ -46,6 +60,10 @@ export function ChatContentModal({ open, onClose, onSuccess, initialContent }: P
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkValue, setLinkValue] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Mobile Groq fallback state
+  const [fallbackState, setFallbackState] = useState<"idle" | "recording" | "processing">("idle");
+  const [fallbackSeconds, setFallbackSeconds] = useState(0);
 
   const { transcript, listening, resetTranscript, browserSupportsSpeechRecognition } = useSpeechRecognition();
   const isMobile = useIsMobile();
@@ -58,6 +76,11 @@ export function ChatContentModal({ open, onClose, onSuccess, initialContent }: P
   const animFrameRef = useRef<number>(0);
   const streamRef = useRef<MediaStream | null>(null);
 
+  // Mobile MediaRecorder refs
+  const fallbackRecorderRef = useRef<MediaRecorder | null>(null);
+  const fallbackChunksRef = useRef<Blob[]>([]);
+  const fallbackTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Init or teardown when modal opens/closes
   useEffect(() => {
     if (open) {
@@ -68,6 +91,7 @@ export function ChatContentModal({ open, onClose, onSuccess, initialContent }: P
     } else {
       SpeechRecognition.stopListening();
       resetTranscript();
+      cancelFallbackRecording();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -109,13 +133,28 @@ export function ChatContentModal({ open, onClose, onSuccess, initialContent }: P
     analyserRef.current = null;
   }, []);
 
+  const cancelFallbackRecording = useCallback(() => {
+    if (fallbackTimerRef.current) { clearInterval(fallbackTimerRef.current); fallbackTimerRef.current = null; }
+    const rec = fallbackRecorderRef.current;
+    if (rec && rec.state !== "inactive") {
+      rec.ondataavailable = null;
+      rec.onstop = null;
+      rec.stop();
+      rec.stream?.getTracks().forEach((t) => t.stop());
+    }
+    fallbackRecorderRef.current = null;
+    setFallbackState("idle");
+    setFallbackSeconds(0);
+  }, []);
+
   const handleClose = useCallback(() => {
     SpeechRecognition.stopListening();
     resetTranscript();
     stopWaveform();
+    cancelFallbackRecording();
     reset();
     onClose();
-  }, [reset, onClose, stopWaveform, resetTranscript]);
+  }, [reset, onClose, stopWaveform, resetTranscript, cancelFallbackRecording]);
 
   const startWaveform = useCallback(async () => {
     try {
@@ -196,26 +235,23 @@ export function ChatContentModal({ open, onClose, onSuccess, initialContent }: P
     }
   }, []);
 
+  // Desktop: Web Speech API (real-time preview)
   const startRecording = useCallback(() => {
     if (!browserSupportsSpeechRecognition) {
       toast.info("Voice input isn't supported in this browser. Tap the mic key on your keyboard to dictate.");
       return;
     }
     resetTranscript();
-    SpeechRecognition.startListening({ continuous: true, language: "en-US", interimResults: true });
-    // Skip waveform on mobile — a second getUserMedia call can interfere with the
-    // browser's internal mic access used by the Speech Recognition API.
-    if (!isMobile) startWaveform();
-  }, [browserSupportsSpeechRecognition, resetTranscript, startWaveform, isMobile]);
+    SpeechRecognition.startListening({ continuous: true, language: navigator.language || "en-US" });
+    startWaveform();
+  }, [browserSupportsSpeechRecognition, resetTranscript, startWaveform]);
 
   const confirmRecording = useCallback(() => {
     SpeechRecognition.stopListening();
     stopWaveform();
     const captured = transcript.trim();
     resetTranscript();
-    if (captured) {
-      setText((prev) => (prev ? `${prev} ${captured}` : captured));
-    }
+    if (captured) setText((prev) => (prev ? `${prev} ${captured}` : captured));
   }, [transcript, resetTranscript, stopWaveform]);
 
   const cancelRecording = useCallback(() => {
@@ -223,6 +259,58 @@ export function ChatContentModal({ open, onClose, onSuccess, initialContent }: P
     resetTranscript();
     stopWaveform();
   }, [resetTranscript, stopWaveform]);
+
+  // Mobile: MediaRecorder → Groq Whisper (accurate transcription)
+  const startFallbackRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = preferredMime();
+      const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      fallbackRecorderRef.current = recorder;
+      fallbackChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) fallbackChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blobMime = recorder.mimeType || mime || "audio/webm";
+        const ext = blobMime.includes("mp4") ? "m4a" : blobMime.includes("ogg") ? "ogg" : "webm";
+        const blob = new Blob(fallbackChunksRef.current, { type: blobMime });
+        const file = new File([blob], `voice-${Date.now()}.${ext}`, { type: blobMime });
+
+        setFallbackState("processing");
+        if (fallbackTimerRef.current) { clearInterval(fallbackTimerRef.current); fallbackTimerRef.current = null; }
+
+        try {
+          const transcribed = await transcribeAudio(file);
+          if (transcribed.trim()) {
+            setText((prev) => (prev ? `${prev} ${transcribed.trim()}` : transcribed.trim()));
+          } else {
+            toast.info("No speech detected — please try again.");
+          }
+        } catch {
+          toast.error("Transcription failed. Check your internet connection and try again.");
+        } finally {
+          setFallbackState("idle");
+          setFallbackSeconds(0);
+        }
+      };
+
+      recorder.start();
+      setFallbackState("recording");
+      setFallbackSeconds(0);
+      fallbackTimerRef.current = setInterval(() => setFallbackSeconds((s) => s + 1), 1000);
+    } catch {
+      toast.error("Microphone access denied. Allow mic in your browser settings.");
+    }
+  }, []);
+
+  const stopFallbackRecording = useCallback(() => {
+    if (fallbackTimerRef.current) { clearInterval(fallbackTimerRef.current); fallbackTimerRef.current = null; }
+    fallbackRecorderRef.current?.stop();
+  }, []);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -493,46 +581,53 @@ export function ChatContentModal({ open, onClose, onSuccess, initialContent }: P
           />
         </div>
 
-        {/* Waveform bar — shown while recording */}
-        {listening && (
+        {/* Desktop: waveform bar while Web Speech API is listening */}
+        {listening && !isMobile && (
           <div className="px-4 pb-4 flex items-center gap-2 border-t pt-3">
-            <canvas
-              ref={canvasRef}
-              className="flex-1 h-8 text-foreground"
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 shrink-0 rounded-full text-muted-foreground hover:text-destructive"
-              onClick={cancelRecording}
-              title="Cancel"
-            >
+            <canvas ref={canvasRef} className="flex-1 h-8 text-foreground" />
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 rounded-full text-muted-foreground hover:text-destructive" onClick={cancelRecording} title="Cancel">
               <X className="w-4 h-4" />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 shrink-0 rounded-full text-muted-foreground hover:text-green-600"
-              onClick={confirmRecording}
-              title="Confirm"
-            >
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 rounded-full text-muted-foreground hover:text-green-600" onClick={confirmRecording} title="Confirm">
               <Check className="w-4 h-4" />
             </Button>
           </div>
         )}
 
-        {/* Action bar — hidden while recording */}
-        {!listening && (
+        {/* Mobile: recording bar (MediaRecorder → Groq) */}
+        {isMobile && fallbackState === "recording" && (
+          <div className="px-4 pb-4 flex items-center gap-2 border-t pt-3">
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+            </span>
+            <span className="text-sm font-medium tabular-nums text-muted-foreground flex-1">
+              {formatTime(fallbackSeconds)} — Recording…
+            </span>
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 rounded-full text-muted-foreground hover:text-destructive" onClick={cancelFallbackRecording} title="Cancel">
+              <X className="w-4 h-4" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 rounded-full text-muted-foreground hover:text-green-600" onClick={stopFallbackRecording} title="Done — transcribe">
+              <Check className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
+
+        {/* Mobile: transcribing spinner */}
+        {isMobile && fallbackState === "processing" && (
+          <div className="px-4 pb-4 flex items-center gap-2 border-t pt-3">
+            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground shrink-0" />
+            <span className="text-sm text-muted-foreground">Transcribing…</span>
+          </div>
+        )}
+
+        {/* Action bar — hidden while any recording is active */}
+        {!listening && fallbackState === "idle" && (
           <div className="px-5 pb-5 flex items-center justify-between gap-2">
             <div className="flex items-center gap-1">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-9 w-9 rounded-full"
-                    title="Attach"
-                  >
+                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full" title="Attach">
                     <Plus className="w-4 h-4" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -551,20 +646,15 @@ export function ChatContentModal({ open, onClose, onSuccess, initialContent }: P
               <Button
                 variant="ghost"
                 size="icon"
-                className={`h-9 w-9 rounded-full ${!browserSupportsSpeechRecognition ? "opacity-40" : ""}`}
-                onClick={startRecording}
-                title={browserSupportsSpeechRecognition ? "Voice input" : "Voice input not supported — use your keyboard mic"}
+                className="h-9 w-9 rounded-full"
+                onClick={isMobile ? startFallbackRecording : startRecording}
+                title="Voice input"
               >
                 <Mic className="w-4 h-4" />
               </Button>
             </div>
 
-            <Button
-              onClick={handleSend}
-              disabled={!canSend}
-              size="sm"
-              className="h-9 px-4 gap-1.5"
-            >
+            <Button onClick={handleSend} disabled={!canSend} size="sm" className="h-9 px-4 gap-1.5">
               <Send className="w-3.5 h-3.5" />
               {isSubmitting
                 ? isEditMode ? "Updating…" : "Saving…"
