@@ -81,6 +81,25 @@ export function ChatContentModal({ open, onClose, onSuccess, initialContent }: P
   const fallbackChunksRef = useRef<Blob[]>([]);
   const fallbackTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Track visual viewport so the modal rides up with the keyboard on Android
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
+  useEffect(() => {
+    if (!open) { setKeyboardOffset(0); return; }
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      const offset = window.innerHeight - vv.height - vv.offsetTop;
+      setKeyboardOffset(Math.max(0, offset));
+    };
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    update();
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, [open]);
+
   // Init or teardown when modal opens/closes
   useEffect(() => {
     if (open) {
@@ -431,7 +450,13 @@ export function ChatContentModal({ open, onClose, onSuccess, initialContent }: P
         if (!o) handleClose();
       }}
     >
-      <DialogContent className="sm:max-w-lg p-0 gap-0 overflow-hidden">
+      <DialogContent
+        className="sm:max-w-lg p-0 gap-0 overflow-hidden"
+        style={{
+          transform: `translateX(-50%) translateY(calc(-50% - ${keyboardOffset}px))`,
+          transition: "transform 0.2s ease-out",
+        }}
+      >
         <DialogHeader className="px-5 pt-5 pb-4 border-b">
           <DialogTitle className="text-base font-semibold">
             {isEditMode ? "Edit Content" : "Add Content"}
