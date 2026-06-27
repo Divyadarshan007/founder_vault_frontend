@@ -67,7 +67,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     user?.name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() || "U";
 
   return (
-    <SidebarProvider>
+    <SidebarProvider className="h-full">
       <Sidebar collapsible="icon">
         <SidebarHeader>
           <SidebarMenu>
@@ -128,7 +128,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {user?.companyName} · <span className="text-foreground">{user?.name}</span>
           </h1>
         </header>
-        <div className="flex-1 p-4 sm:p-6 overflow-auto">{children}</div>
+        <div className="flex-1 min-h-0 p-4 sm:p-6 overflow-hidden">{children}</div>
       </SidebarInset>
     </SidebarProvider>
   );

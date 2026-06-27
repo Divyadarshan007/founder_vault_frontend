@@ -19,6 +19,19 @@ function FileIcon({ fileType }: { fileType: string }) {
   return <File className="w-3.5 h-3.5 shrink-0" />;
 }
 
+function getFileLabel(fileName: string, fileType: string): string {
+  const ext = fileName.split(".").pop()?.toUpperCase();
+  if (ext && ext.length <= 5) return ext;
+  if (fileType === "application/pdf") return "PDF";
+  if (fileType.includes("word")) return "DOCX";
+  if (fileType.includes("spreadsheet") || fileType.includes("excel")) return "XLSX";
+  if (fileType.includes("presentation") || fileType.includes("powerpoint")) return "PPTX";
+  if (fileType.startsWith("text/")) return "TXT";
+  if (fileType.startsWith("audio/")) return "AUDIO";
+  if (fileType.startsWith("video/")) return "VIDEO";
+  return "FILE";
+}
+
 function AttachmentPreviews({ attachments }: { attachments: Attachment[] }) {
   if (attachments.length === 0) return null;
 
@@ -33,9 +46,9 @@ function AttachmentPreviews({ attachments }: { attachments: Attachment[] }) {
         </div>
       ))}
       {files.map((a) => (
-        <div key={a._id} className="flex items-center gap-1.5 text-xs bg-secondary text-secondary-foreground px-2.5 py-1.5 rounded-md max-w-48">
+        <div key={a._id} className="flex items-center gap-1.5 text-xs bg-secondary text-secondary-foreground px-2.5 py-1.5 rounded-md">
           <FileIcon fileType={a.fileType} />
-          <span className="truncate">{a.fileName}</span>
+          <span className="font-medium">{getFileLabel(a.fileName, a.fileType)}</span>
         </div>
       ))}
     </div>
@@ -44,7 +57,7 @@ function AttachmentPreviews({ attachments }: { attachments: Attachment[] }) {
 
 function Inner({ content }: { content: Content }) {
   return (
-    <article className="flex items-start py-5 sm:py-8 border-b last:border-b-0 hover:bg-muted/30 transition-colors cursor-pointer group px-1">
+    <article className="flex items-start py-5 sm:py-8 hover:bg-muted/30 transition-colors cursor-pointer group px-1">
       <div className="flex-1 min-w-0 flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <ContentTypeBadge type={content.type} />

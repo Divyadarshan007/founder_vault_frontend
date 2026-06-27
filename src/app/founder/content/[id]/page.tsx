@@ -122,7 +122,7 @@ export default function ContentDetailPage(props: { params: Promise<{ id: string 
       </div>
 
       {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto min-h-0 space-y-5">
+      <div className="flex-1 overflow-y-auto no-scrollbar min-h-0 space-y-5">
         {/* Byline */}
         <div className="flex items-center gap-3">
           <Avatar className="w-10 h-10">
@@ -139,7 +139,7 @@ export default function ContentDetailPage(props: { params: Promise<{ id: string 
         </div>
 
         {/* Title */}
-        <h1 className="text-2xl font-bold leading-snug">{content.title}</h1>
+        {content.title && <h1 className="text-2xl font-bold leading-snug">{content.title}</h1>}
 
         {/* Description */}
         <p className="text-base leading-relaxed whitespace-pre-wrap text-foreground/90">

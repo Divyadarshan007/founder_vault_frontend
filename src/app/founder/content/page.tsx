@@ -97,7 +97,7 @@ export default function ContentListPage() {
         />
       ) : (
         <>
-          <div className="flex flex-col">
+          <div className="flex flex-col divide-y divide-gray-200 dark:divide-gray-800">
             {contents.map((c) => (
               <ContentCard key={c._id} content={c} href={`/founder/content/${c._id}`} />
             ))}
