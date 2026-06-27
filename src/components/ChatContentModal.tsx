@@ -3,6 +3,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import SpeechRecognition, { useSpeechRecognition } from "react-speech-recognition";
 import { Mic, Check, Plus, Send, X, Link as LinkIcon, Paperclip } from "lucide-react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -47,6 +48,7 @@ export function ChatContentModal({ open, onClose, onSuccess, initialContent }: P
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { transcript, listening, resetTranscript, browserSupportsSpeechRecognition } = useSpeechRecognition();
+  const isMobile = useIsMobile();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const linkInputRef = useRef<HTMLInputElement>(null);
@@ -196,13 +198,15 @@ export function ChatContentModal({ open, onClose, onSuccess, initialContent }: P
 
   const startRecording = useCallback(() => {
     if (!browserSupportsSpeechRecognition) {
-      toast.error("Speech recognition is not supported in this browser");
+      toast.info("Voice input isn't supported in this browser. Tap the mic key on your keyboard to dictate.");
       return;
     }
     resetTranscript();
     SpeechRecognition.startListening({ continuous: true, language: "en-US", interimResults: true });
-    startWaveform();
-  }, [browserSupportsSpeechRecognition, resetTranscript, startWaveform]);
+    // Skip waveform on mobile — a second getUserMedia call can interfere with the
+    // browser's internal mic access used by the Speech Recognition API.
+    if (!isMobile) startWaveform();
+  }, [browserSupportsSpeechRecognition, resetTranscript, startWaveform, isMobile]);
 
   const confirmRecording = useCallback(() => {
     SpeechRecognition.stopListening();
@@ -547,9 +551,9 @@ export function ChatContentModal({ open, onClose, onSuccess, initialContent }: P
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 rounded-full"
+                className={`h-9 w-9 rounded-full ${!browserSupportsSpeechRecognition ? "opacity-40" : ""}`}
                 onClick={startRecording}
-                title="Voice input"
+                title={browserSupportsSpeechRecognition ? "Voice input" : "Voice input not supported — use your keyboard mic"}
               >
                 <Mic className="w-4 h-4" />
               </Button>

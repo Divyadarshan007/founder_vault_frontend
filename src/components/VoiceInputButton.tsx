@@ -16,7 +16,7 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
 
   const startRecording = useCallback(() => {
     if (!browserSupportsSpeechRecognition) {
-      toast.error("Speech recognition is not supported in this browser. Try Chrome or Edge.");
+      toast.info("Voice input isn't supported in this browser. Tap the mic key on your keyboard to dictate.");
       return;
     }
     resetTranscript();
@@ -71,10 +71,10 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
       type="button"
       variant="ghost"
       size="icon"
-      className="h-7 w-7 text-muted-foreground hover:text-primary"
+      className={`h-7 w-7 text-muted-foreground hover:text-primary ${!browserSupportsSpeechRecognition ? "opacity-40" : ""}`}
       onClick={startRecording}
       disabled={disabled}
-      title="Speak to fill this field"
+      title={browserSupportsSpeechRecognition ? "Speak to fill this field" : "Voice input not supported — use your keyboard mic"}
     >
       <Mic className="h-4 w-4" />
     </Button>
