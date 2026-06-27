@@ -84,7 +84,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </SidebarMenu>
         </SidebarHeader>
 
-        <SidebarContent>
+        <SidebarContent className="px-2 py-2">
           <SidebarNav pathname={pathname} />
         </SidebarContent>
 
@@ -128,7 +128,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {user?.companyName} · <span className="text-foreground">{user?.name}</span>
           </h1>
         </header>
-        <div className="flex-1 min-h-0 p-4 sm:p-6 overflow-hidden">{children}</div>
+        <div className="flex-1 min-h-0 p-4 sm:p-6 overflow-y-auto">{children}</div>
       </SidebarInset>
     </SidebarProvider>
   );

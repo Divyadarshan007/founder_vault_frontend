@@ -577,7 +577,7 @@ export function ChatContentModal({ open, onClose, onSuccess, initialContent }: P
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSend();
             }}
-            className="min-h-27.5 max-h-65 overflow-y-auto resize-none border-0 p-3 text-sm focus-visible:ring-0 shadow-none bg-transparent"
+            className="min-h-24 sm:min-h-27.5 max-h-40 sm:max-h-65 overflow-y-auto resize-none border-0 p-3 text-sm focus-visible:ring-0 shadow-none bg-transparent"
           />
         </div>
 
